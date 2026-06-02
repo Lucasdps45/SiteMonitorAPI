@@ -45,7 +45,47 @@ def save_check(target_id: int, result: dict):
     finally:
         db.close()
 
+
+def handle_incident(target_id: int, is_up: bool):
+    db = SessionLocal()
+    try:
+
+        ultimo_check = (
+            db.query(models.Check)
+            .filter(models.Check.target_id == target_id)
+            .order_by(models.Check.checado_em.desc())
+            .offset(1)
+            .first()
+        )
+
+        incidente_aberto = (
+            db.query(models.Incident)
+            .filter(
+                models.Incident.target_id == target_id,
+                models.Incident.fim == None
+            )
+            .first()
+        )
+
+        agora = datetime.now(timezone.utc)
+
+        if ultimo_check and ultimo_check.is_up and not is_up:
+            incidente = models.Incident(target_id=target_id, inicio= agora)
+            db.add(incidente)
+            db.commit()
+
+        elif incidente_aberto and is_up:
+            duracao = int((agora - incidente_aberto.inicio.replace(tzinfo=timezone.utc)).total_seconds())
+            incidente_aberto.fim = agora
+            incidente_aberto.duracao_seg = duracao
+            db.commit()
+
+    finally:
+        db.close()
+
+
 async def run_check(target_id: int, url: str):
     result = await health_check(url)
     save_check(target_id, result)
+    handle_incident(target_id, result['is_up'])
     return result
